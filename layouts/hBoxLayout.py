@@ -94,9 +94,6 @@ class HBoxLayout(QtWidgets.QLayout):
                 x += s
         return y
 
-    def expandingDirections(self):
-        return QtCore.Qt.Orientation.Horizontal
-
     def setSpacing(self, spacing):
         self._spacing = spacing
 

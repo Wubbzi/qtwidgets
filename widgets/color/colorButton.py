@@ -12,10 +12,11 @@ from PyQt6.QtWidgets import QApplication
 
 MIME_TYPE_COLOR = 'application/x-color'
 
+# noinspection PyUnresolvedReferences
 
 class ColorButton(QtWidgets.QPushButton):
     """
-    A button that shows a color. Originally intended to be used as part of a color swatch.
+    A button that displays a color. Originally intended to be used as part of a color swatch.
 
     Unable to display text.
 
@@ -35,32 +36,43 @@ class ColorButton(QtWidgets.QPushButton):
 
     colorChanged = QtCore.pyqtSignal(object)
 
-    def __init__(self, text=None, parent=None, color=None):
+    def __init__(self, text=None, parent=None, color=None, sizeHint=None, outlineColor=None):
         super().__init__(text, parent)
+
         self.setParent(parent)
         self.setAcceptDrops(True)
         self.setMouseTracking(True)
         self.setProperty('hover', False)
-        self.__color = QtGui.QColor(color or (255, 255, 255))
+
+        self.__color = color or QtGui.QColor(255, 0, 0)
         self.__dragStartPosition = QtCore.QPoint()
-        self.__hoverPenColor = QtGui.QColor(200, 30, 0)
+        self.__hoverOutlineColor = QtGui.QColor(200, 30, 0)
         self.__clickToOpen = False
-        self.__outlineColor = QtGui.QColorConstants.Svg.black
+        self.__outlineColor = outlineColor or QtGui.QColorConstants.Svg.black
+        self.__sizeHintSize = sizeHint or QtCore.QSize(24, 24)
+
+        self.setColor(self.__color)
+
         if QtWidgets.QApplication.instance().palette().base().color().lightnessF() > 0.5:
             self.__outlineColor = QtGui.QColorConstants.Svg.lightgrey
+
+    def setSizeHint(self, size: QtCore.QSize) -> None:
+        self.__sizeHintSize = size
 
     def setText(self, text: str) -> None:
         super(ColorButton, self).setText('')
 
     def setClickToOpen(self, clickToOpen: bool) -> None:
+        """
+        when True, the color dialog is shown when the left mouse button is released.
+        """
         self.__clickToOpen = clickToOpen
 
     def isClickToOpen(self) -> bool:
         return self.__clickToOpen
 
     def sizeHint(self) -> QtCore.QSize:
-        super(ColorButton, self).sizeHint()
-        return QtCore.QSize(22, 22)
+        return self.__sizeHintSize
 
     def enterEvent(self, event: QtGui.QEnterEvent) -> None:
         event.accept()
@@ -75,7 +87,6 @@ class ColorButton(QtWidgets.QPushButton):
         return super(ColorButton, self).leaveEvent(event)
 
     def paintEvent(self, event) -> None:
-        super().paintEvent(event)
         painter = QtGui.QPainter(self)
 
         option = QtWidgets.QStyleOptionButton()
@@ -90,20 +101,39 @@ class ColorButton(QtWidgets.QPushButton):
             )
         )
 
-        r, g, b, _ = self.__color.getRgbF()
-
         pen = QtGui.QPen(self.__outlineColor)
         pen.setCosmetic(True)
 
         if self.property('hover'):
-            pen = QtGui.QPen(self.__hoverPenColor)
+            pen = QtGui.QPen(self.__hoverOutlineColor)
+        painter.setPen(pen)
 
         path = QtGui.QPainterPath()
         path.addRect(rect)
 
-        painter.setPen(pen)
-        painter.fillPath(path, self.__color)
+        if self.__color.isValid():
+            painter.fillPath(path, self.__color)
+        else:
+            self.paintErrorBox(painter, path, rect)
         painter.drawPath(path)
+
+    def paintErrorBox(self, painter, path, rect):
+        """
+        Draw a red outline around the button with an X in it to indicate the color is invalid.
+        """
+
+        b = QtGui.QBrush(QtGui.QColor(QtGui.QColorConstants.Svg.black))
+        b.setStyle(QtCore.Qt.BrushStyle.Dense4Pattern)
+        painter.fillPath(path, b)
+        # define the error color here incase the outline color is changed.
+        painter.setPen(QtGui.QPen(QtGui.QColor(QtGui.QColorConstants.Svg.red)))
+
+        if self.property('hover'):
+            b = QtGui.QBrush(QtGui.QColor(QtGui.QColor(255, 0, 0, 40)))
+            painter.fillPath(path, b)
+
+        painter.drawLine(rect.topLeft(), rect.bottomRight())
+        painter.drawLine(rect.topRight(), rect.bottomLeft())
 
     def dragLeaveEvent(self, event: QtGui.QDragLeaveEvent) -> None:
         self.setProperty('hover', False)
@@ -121,11 +151,12 @@ class ColorButton(QtWidgets.QPushButton):
             return
 
         event.accept()
+        color = QtGui.QColor()
         mime = event.mimeData()
         itemData = mime.data(MIME_TYPE_COLOR)
         stream = QtCore.QDataStream(itemData, QtCore.QIODevice.OpenModeFlag.ReadOnly)
-        color = QtGui.QColor()
         stream >> color
+
         event.setDropAction(QtCore.Qt.DropAction.MoveAction)
         self.setColor(color)
 
@@ -134,8 +165,8 @@ class ColorButton(QtWidgets.QPushButton):
                 Qt.KeyboardModifier.ControlModifier, Qt.Key.Key_C
         ):
             return super().keyPressEvent(event)
-        QApplication.clipboard().setText(self.__color.name())
         event.accept()
+        QApplication.clipboard().setText(self.__color.name())
 
     def mousePressEvent(self, event) -> None:
         if not event.button() & QtCore.Qt.MouseButton.LeftButton:
@@ -144,10 +175,10 @@ class ColorButton(QtWidgets.QPushButton):
         self.clicked.emit()
 
     def mouseMoveEvent(self, event) -> None:
-        super().mouseMoveEvent(event)
         pos = event.position() if hasattr('event', 'position') else event.pos()
         if event.buttons() ^ QtCore.Qt.MouseButton.LeftButton:
-            return
+            return super().mouseMoveEvent(event)
+
         delta = QtCore.QPoint(pos - self.__dragStartPosition).manhattanLength()
         if delta >= QtWidgets.QApplication.startDragDistance():
             self.__dragIt()
@@ -159,10 +190,12 @@ class ColorButton(QtWidgets.QPushButton):
         self.released.emit()
 
     def __dragIt(self):
+        if not self.__color.isValid():
+            return
         # occasionally, the outline color isn't updated when the drag starts, so update() here to ensure it's gone.
-        self.update()
 
         drag = QtGui.QDrag(self)
+        self.update()
 
         data = QtCore.QByteArray()
         stream = QtCore.QDataStream(data, QtCore.QIODevice.OpenModeFlag.WriteOnly)
@@ -188,27 +221,25 @@ class ColorButton(QtWidgets.QPushButton):
 
     def __openDialog(self) -> None:
         lastColor = self.__color
-        color_dialog = QtWidgets.QColorDialog(self.__color)
-        color_dialog.move(self.pos())
-        color_dialog.currentColorChanged.connect(self.setColor)
-        color_dialog.exec()
-        if color_dialog.result() & QtWidgets.QColorDialog.DialogCode.Accepted:
-            color_dialog.currentColorChanged.emit(color_dialog.selectedColor())
+        colorDialog = QtWidgets.QColorDialog(self.__color)
+        colorDialog.move(self.pos())
+        colorDialog.currentColorChanged.connect(self.setColor)
+        colorDialog.exec()
+        if colorDialog.result() & QtWidgets.QColorDialog.DialogCode.Accepted:
+            colorDialog.currentColorChanged.emit(colorDialog.selectedColor())
             return
         self.setColor(lastColor)
 
     def setColor(self, color) -> None:
         # unless the user creates the button with an invalid color, we shouldn't need to do this
-        if not color.isValid():
-            return
         self.__color = color
         self.colorChanged.emit(self.__color.getRgbF())
         self.setToolTip(self.__color.name())
         self.update()
 
     @functools.cached_property
-    def hoverPen(self) -> QtGui.QColor:
-        return self.__hoverPenColor
+    def hoverOutlineColor(self) -> QtGui.QColor:
+        return self.__hoverOutlineColor
 
     @property
     def color(self) -> QtGui.QColor:
@@ -225,8 +256,10 @@ if __name__ == '__main__':
     w.setLayout(layout)
     for _ in range(10):
         rnd = random.randint
-        btn = ColorButton(color=QtGui.QColor(rnd(0, 255), rnd(0, 255), rnd(0, 255)))
+        btn = ColorButton(color=QtGui.QColor(rnd(0, 255), rnd(0, 255), rnd(0, 255)), sizeHint=QtCore.QSize(30, 30))
         layout.addWidget(btn)
-
+        btn.setClickToOpen(rnd(0, 1))
+    btn = ColorButton(sizeHint=QtCore.QSize(30, 30))
+    layout.addWidget(btn)
     w.show()
     app.exec()

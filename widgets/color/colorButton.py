@@ -77,7 +77,7 @@ class ColorButton(QtWidgets.QPushButton):
         colorFormatGroup = QActionGroup(self)
         colorFormatMenu = self.contextMenu.addMenu('Value Type')
 
-        for x in "Hex RGB HSL".split():
+        for x in "Hex RGB HSL HSV CMYK".split():
             a = colorFormatMenu.addAction(x)
             a.setCheckable(True)
             if x == self.colorFormat:
@@ -308,23 +308,34 @@ class ColorButton(QtWidgets.QPushButton):
             case 'hex':
                 s = color.name().upper()
             case 'rgb':
-                rgb = color.getRgbF()
-                red, green, blue, _ = [decimal.Decimal(c) * 255 for c in rgb]
+                rgb = color.getRgbF()[:-1]  # ignore alpha
+                red, green, blue = [decimal.Decimal(c) * 255 for c in rgb]
                 s = f'rgb({red:.0f}, {green:.0f}, {blue:.0f}) '
             case 'hsl':
-                hsl = color.getHslF()
+                hsl = color.getHslF()[:-1]  # ignore alpha
                 h = decimal.Decimal(color.hslHueF()) * 360
-                saturation, lightness = [decimal.Decimal(c) * 100 for c in hsl[1:-1]]
-                s = f'hsl({h:.0f}, {saturation:.0f}%, {lightness:.0f}%) '
+                saturation, lightness = [decimal.Decimal(c) * 100 for c in hsl[1:]]
+                s = f'hsl({h:.0f}\u00B0, {saturation:.0f}%, {lightness:.0f}%) '
+            case 'hsv':
+                hsv = color.getHsvF()[:-1]  # ignore alpha
+                h = decimal.Decimal(color.hsvHueF()) * 360
+                saturation, value = [decimal.Decimal(c) * 100 for c in hsv[1:]]
+                s = f'hsv({h:.0f}\u00B0, {saturation:.0f}%, {value:.0f}%) '
+            case 'cmyk':
+                cmyk = color.getCmykF()[:-1]  # ignore alpha
+                cyan, magenta, yellow, black = [decimal.Decimal(c) * 100 for c in cmyk]
+                s = f'cmyk({cyan:.0f}%, {magenta:.0f}%, {yellow:.0f}%, {black:.0f}%) '
 
-        if self.__colorString == s:
+        if self.__colorString == s.replace('\u00B0', ''):
             # nothing to do
             return
-        self.__colorString = s
-        self.updateToolTip()
 
-    def updateToolTip(self) -> None:
-        self.setToolTip(self.__colorString)
+        self.__colorString = s.replace('\u00B0', '')
+        self.updateToolTip(s)
+
+    def updateToolTip(self, text=None) -> None:
+        tooltip = text
+        self.setToolTip(tooltip)
 
     def setColor(self, color) -> None:
         self.__color = color

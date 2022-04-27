@@ -294,9 +294,11 @@ class ColorButton(QtWidgets.QPushButton):
         converting values from getRgbF() and getHslF() to decimal and scaling fixes this issue.
 
         example:
-            hsl(223, 97%, 45%)
-            rgb(4, 66, 227)
-            #0442E3
+            #F5D700
+            rgb(245, 215, 0)
+            hsl(53, 100%, 48%)
+            hsv(53, 100%, 96%)
+            cmyk(0%, 12%, 100%, 4%)
 
         """
 

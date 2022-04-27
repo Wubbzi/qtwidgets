@@ -349,12 +349,17 @@ if __name__ == '__main__':
     layout = HBoxLayout()
     w = QtWidgets.QWidget()
     w.setLayout(layout)
-    for _ in range(10):
+    fixedColorBtn = ColorButton(color=QtGui.QColor(245, 215, 0), sizeHint=QtCore.QSize(30, 30))
+    layout.addWidget(fixedColorBtn)
+
+    for _ in range(8):
         rnd = random.randint
         btn = ColorButton(color=QtGui.QColor(rnd(0, 255), rnd(0, 255), rnd(0, 255)), sizeHint=QtCore.QSize(30, 30))
         layout.addWidget(btn)
         btn.setClickToOpen(rnd(0, 1))
-    btn = ColorButton(sizeHint=QtCore.QSize(30, 30))
-    layout.addWidget(btn)
+
+    invalidColorBtn = ColorButton(sizeHint=QtCore.QSize(30, 30))
+    invalidColorBtn.colorFormat = 'Hex'
+    layout.addWidget(invalidColorBtn)
     w.show()
     app.exec()

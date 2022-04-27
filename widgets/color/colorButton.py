@@ -1,18 +1,19 @@
+import decimal
 import functools
 import random
 import sys
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import QKeyCombination, Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QAction, QActionGroup
 
-# TODO: ability to choose a format for copied color and tooltip. Currently, it's always a hex string.
 # TODO: move hover logic out of dragEnter/dragLeave and into focusIn/focusOut events.
 # TODO: handle colors with an alpha channel properly. Currently the option is disabled in the color dialog.
 
 MIME_TYPE_COLOR = 'application/x-color'
 
-# noinspection PyUnresolvedReferences
+decimal.setcontext(decimal.Context(prec=4, rounding=decimal.ROUND_HALF_UP))
+
 
 class ColorButton(QtWidgets.QPushButton):
     """
@@ -35,6 +36,7 @@ class ColorButton(QtWidgets.QPushButton):
     """
 
     colorChanged = QtCore.pyqtSignal(object)
+    colorFormat = 'RGB'
 
     def __init__(self, text=None, parent=None, color=None, sizeHint=None, outlineColor=None):
         super().__init__(text, parent)
@@ -42,9 +44,13 @@ class ColorButton(QtWidgets.QPushButton):
         self.setParent(parent)
         self.setAcceptDrops(True)
         self.setMouseTracking(True)
-        self.setProperty('hover', False)
+        self.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
 
-        self.__color = color or QtGui.QColor(255, 0, 0)
+        self.contextMenu = QtWidgets.QMenu(self)
+        self.customContextMenuRequested.connect(self.onContextMenu)
+        self.addActionsToContextMenu()
+        self.__colorString = ''
+        self.__color = color or QtGui.QColor('Invalid')
         self.__dragStartPosition = QtCore.QPoint()
         self.__hoverOutlineColor = QtGui.QColor(200, 30, 0)
         self.__clickToOpen = False
@@ -55,6 +61,43 @@ class ColorButton(QtWidgets.QPushButton):
 
         if QtWidgets.QApplication.instance().palette().base().color().lightnessF() > 0.5:
             self.__outlineColor = QtGui.QColorConstants.Svg.lightgrey
+
+    def copyColorString(self) -> None:
+        """
+        Copy the current color string to the clipboard.
+        """
+
+        QtWidgets.QApplication.clipboard().setText(self.__colorString)
+
+    def addActionsToContextMenu(self):
+        copyAction = QAction('Copy', self)
+        copyAction.triggered.connect(self.copyColorString)
+        self.contextMenu.addAction(copyAction)
+
+        colorFormatGroup = QActionGroup(self)
+        colorFormatMenu = self.contextMenu.addMenu('Value Type')
+
+        for x in "Hex RGB HSL".split():
+            a = colorFormatMenu.addAction(x)
+            a.setCheckable(True)
+            if x == self.colorFormat:
+                a.setChecked(True)
+            colorFormatGroup.addAction(a)
+
+        colorFormatGroup.triggered.connect(self.onColorFormatChanged)
+        colorFormatGroup.setExclusive(True)
+
+    def onContextMenu(self):
+        self.setProperty('contextMenuVisible', True)
+        center = self.mapToGlobal(self.rect().center())
+        self.contextMenu.exec(center)
+        self.contextMenu.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.setProperty('contextMenuVisible', False)
+
+    def onColorFormatChanged(self, action: QAction):
+        text = action.text()
+        self.colorFormat = text.lower()
+        self.__parseColor()
 
     def setSizeHint(self, size: QtCore.QSize) -> None:
         self.__sizeHintSize = size
@@ -83,6 +126,7 @@ class ColorButton(QtWidgets.QPushButton):
 
     def leaveEvent(self, event: QtCore.QEvent) -> None:
         event.accept()
+        # make sure we don't leave the button highlighted when the cursor leaves the button
         self.setProperty('hover', False)
         return super(ColorButton, self).leaveEvent(event)
 
@@ -104,7 +148,7 @@ class ColorButton(QtWidgets.QPushButton):
         pen = QtGui.QPen(self.__outlineColor)
         pen.setCosmetic(True)
 
-        if self.property('hover'):
+        if self.property('hover') or self.property('contextMenuVisible'):
             pen = QtGui.QPen(self.__hoverOutlineColor)
         painter.setPen(pen)
 
@@ -119,19 +163,23 @@ class ColorButton(QtWidgets.QPushButton):
 
     def paintErrorBox(self, painter, path, rect):
         """
-        Draw a red outline around the button with an X in it to indicate the color is invalid.
+        Draw a red outline around the button and paint a red X across the button
+
         """
 
         b = QtGui.QBrush(QtGui.QColor(QtGui.QColorConstants.Svg.black))
+        # lazy attempt to make a checkerboard pattern
         b.setStyle(QtCore.Qt.BrushStyle.Dense4Pattern)
         painter.fillPath(path, b)
         # define the error color here incase the outline color is changed.
         painter.setPen(QtGui.QPen(QtGui.QColor(QtGui.QColorConstants.Svg.red)))
 
         if self.property('hover'):
+            # if for some reason the red outline and the red X don't standout enough
+            # fill the button rect with a translucent red when the cursor is hovering over the button
             b = QtGui.QBrush(QtGui.QColor(QtGui.QColor(255, 0, 0, 40)))
             painter.fillPath(path, b)
-
+        # paint the X
         painter.drawLine(rect.topLeft(), rect.bottomRight())
         painter.drawLine(rect.topRight(), rect.bottomLeft())
 
@@ -140,8 +188,10 @@ class ColorButton(QtWidgets.QPushButton):
         self.update()
 
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(MIME_TYPE_COLOR):
-            event.acceptProposedAction()
+        if not event.mimeData().hasFormat(MIME_TYPE_COLOR):
+            return
+
+        event.acceptProposedAction()
         self.setProperty('hover', True)
         self.update()
 
@@ -166,7 +216,7 @@ class ColorButton(QtWidgets.QPushButton):
         ):
             return super().keyPressEvent(event)
         event.accept()
-        QApplication.clipboard().setText(self.__color.name())
+        self.copyColorString()
 
     def mousePressEvent(self, event) -> None:
         if not event.button() & QtCore.Qt.MouseButton.LeftButton:
@@ -175,10 +225,11 @@ class ColorButton(QtWidgets.QPushButton):
         self.clicked.emit()
 
     def mouseMoveEvent(self, event) -> None:
-        pos = event.position() if hasattr('event', 'position') else event.pos()
         if event.buttons() ^ QtCore.Qt.MouseButton.LeftButton:
+            event.ignore()
             return super().mouseMoveEvent(event)
 
+        pos = event.position() if hasattr('event', 'position') else event.pos()
         delta = QtCore.QPoint(pos - self.__dragStartPosition).manhattanLength()
         if delta >= QtWidgets.QApplication.startDragDistance():
             self.__dragIt()
@@ -230,12 +281,56 @@ class ColorButton(QtWidgets.QPushButton):
             return
         self.setColor(lastColor)
 
+    def __parseColor(self) -> None:
+
+        # TODO: Is there a way to get the color profile from the system in python without using OCIO?
+
+        """
+        Parses a QColor and updates the string used when copying a color to the clipboard and setting the tooltip.
+        Called when the color format is changed from the context menu and from setColor()
+
+        Occasionally, one of the values from QColor.getRgb() and QColor.getHsl() would contain
+        a value that was off by one according to the Digital Color Meter utility and XScope.
+        converting values from getRgbF() and getHslF() to decimal and scaling fixes this issue.
+
+        example:
+            hsl(223, 97%, 45%)
+            rgb(4, 66, 227)
+            #0442E3
+
+        """
+
+        s = ''
+        colorFormat = self.colorFormat.lower()
+        color = self.__color
+
+        match colorFormat:
+            case 'hex':
+                s = color.name().upper()
+            case 'rgb':
+                rgb = color.getRgbF()
+                red, green, blue, _ = [decimal.Decimal(c) * 255 for c in rgb]
+                s = f'rgb({red:.0f}, {green:.0f}, {blue:.0f}) '
+            case 'hsl':
+                hsl = color.getHslF()
+                h = decimal.Decimal(color.hslHueF()) * 360
+                saturation, lightness = [decimal.Decimal(c) * 100 for c in hsl[1:-1]]
+                s = f'hsl({h:.0f}, {saturation:.0f}%, {lightness:.0f}%) '
+
+        if self.__colorString == s:
+            # nothing to do
+            return
+        self.__colorString = s
+        self.updateToolTip()
+
+    def updateToolTip(self) -> None:
+        self.setToolTip(self.__colorString)
+
     def setColor(self, color) -> None:
-        # unless the user creates the button with an invalid color, we shouldn't need to do this
         self.__color = color
-        self.colorChanged.emit(self.__color.getRgbF())
-        self.setToolTip(self.__color.name())
+        self.__parseColor()
         self.update()
+        self.colorChanged.emit(color)
 
     @functools.cached_property
     def hoverOutlineColor(self) -> QtGui.QColor:

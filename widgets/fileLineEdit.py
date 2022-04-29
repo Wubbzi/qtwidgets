@@ -118,18 +118,3 @@ class FileLineEdit(QtWidgets.QWidget):
 
     def textEdited(self):
         self.fileUrlChanged.emit(self.filePath())
-
-
-if __name__ == '__main__':
-    app = QtWidgets.QApplication([])
-    widget = QtWidgets.QWidget()
-    vLayout = QtWidgets.QVBoxLayout()
-    widget.setLayout(vLayout)
-    fileEdit1 = FileLineEdit()
-    fileEdit2 = FileLineEdit(isDirectory=True)
-    fileEdit3 = FileLineEdit()
-    vLayout.addWidget(fileEdit1)
-    vLayout.addWidget(fileEdit2)
-    vLayout.addWidget(fileEdit3)
-    widget.show()
-    app.exec()
